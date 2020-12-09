@@ -19,7 +19,10 @@ func main() {
 		return hookSignal(cancelCtx)
 	})
 	g.Go(func() error {
-		return startServer(cancelCtx, ":8087", &httpHandler{})
+		return startServer(cancelCtx, ":8089", &httpHandler{})
+	})
+	g.Go(func() error {
+		return working(cancelCtx)
 	})
 	if err := g.Wait(); err != nil {
 		fmt.Println("error group return err:", err.Error())
@@ -38,8 +41,14 @@ func hookSignal(ctx context.Context) error {
 			return fmt.Errorf("signal routine：other work done")
 		case s := <-c:
 			fmt.Printf("get a signal %s", s.String())
-			time.Sleep(5 * time.Second)
-			return fmt.Errorf("quit !!!")
+			switch s {
+			case syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT:
+				time.Sleep(5 * time.Second)
+				return fmt.Errorf("quit!!!!")
+			case syscall.SIGHUP:
+			default:
+				return ctx.Err()
+			}
 		}
 	}
 }
@@ -61,6 +70,20 @@ func startServer(ctx context.Context, addr string, h http.Handler) error {
 	}(ctx)
 	fmt.Println("http routione：START!")
 	return s.ListenAndServe()
+}
+
+// Whether the worker Coroutine can exit
+func working(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("background Context cancel ")
+			return ctx.Err()
+		default:
+			fmt.Println("working")
+			time.Sleep(1 * time.Second)
+		}
+	}
 }
 
 type httpHandler struct {
