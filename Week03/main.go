@@ -19,7 +19,7 @@ func main() {
 		return hookSignal(cancelCtx)
 	})
 	g.Go(func() error {
-		return startServer(cancelCtx, ":8086", &httpHandler{})
+		return startServer(cancelCtx, ":8087", &httpHandler{})
 	})
 	if err := g.Wait(); err != nil {
 		fmt.Println("error group return err:", err.Error())
@@ -33,15 +33,13 @@ func hookSignal(ctx context.Context) error {
 	signal.Notify(c, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
 	fmt.Println("signal routine：START!")
 	for {
-		s := <-c
-		fmt.Printf("get a signal %s", s.String())
-		switch s {
-		case syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT:
-			time.Sleep(time.Second)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("signal routine：other work done")
+		case s := <-c:
+			fmt.Printf("get a signal %s", s.String())
+			time.Sleep(5 * time.Second)
 			return fmt.Errorf("quit !!!")
-		case syscall.SIGHUP:
-		default:
-			return ctx.Err()
 		}
 	}
 }
@@ -53,10 +51,12 @@ func startServer(ctx context.Context, addr string, h http.Handler) error {
 	}
 
 	go func(ctx context.Context) {
+		ctx1, cancel := context.WithTimeout(context.Background(), time.Second*5)
+		defer cancel()
 		<-ctx.Done()
-		fmt.Println("http server s% ctx done", s.Addr)
-		if err := s.Shutdown(context.Background()); err != nil {
-			fmt.Println("http server %s shutdown err : s%", s.Addr, err)
+		fmt.Printf("http server %s ctx done\n", s.Addr)
+		if err := s.Shutdown(ctx1); err != nil {
+			fmt.Printf("http server %s shutdown err : %s\n", s.Addr, err)
 		}
 	}(ctx)
 	fmt.Println("http routione：START!")
